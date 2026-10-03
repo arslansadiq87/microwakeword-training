@@ -34,7 +34,7 @@ cd notebooks
 jupyter lab basic_training_notebook.ipynb
 ```
 
-In VS Code, open the notebook and select the Python environment at `microWakeWord/.venv`. If PowerShell blocks virtual environment activation, you can allow it for the current PowerShell process and activate again:
+In VS Code, open the notebook and select the Python environment at `microWakeWord/.venv`. If PowerShell blocks virtual environment activation, allow it for the current PowerShell process and activate again from the `microWakeWord` folder. If the terminal is still in `notebooks`, first run `cd ..`:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
