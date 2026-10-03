@@ -1,104 +1,102 @@
-# microWakeWord Training and TechPanda Voice Assistant
+# Hi Tech Panda: Custom Wake Word and ESP32-S3 Voice Assistant
 
-This repository contains a complete example workflow: prepare and train a custom wake-word model with microWakeWord, then run an embedded model on an ESP32-S3 voice assistant.
+This repository brings together the **microWakeWord training project** and the **TechPanda Voice Assistant firmware**. Use the included notebook to prepare and train a custom wake-word model, or skip training and build the assistant with its supplied “Hi Tech Panda” model.
 
-| Project | Folder | Purpose |
-| --- | --- | --- |
-| microWakeWord training | [`microWakeWord/`](microWakeWord/README.md) | Generate training audio, prepare background data, train a model, and export a quantized streaming TFLite file. |
-| TechPanda Voice Assistant | [`TechPanda Voice Assistant/`](TechPanda%20Voice%20Assistant/README.md) | Detect “Hi Tech Panda” on device, capture a question, use Groq for transcription and chat, and play a spoken response. |
+## Before you start
 
-The training notebook and firmware are separate parts of the workflow. The firmware is already supplied with a model; you do not need to train a new one to build and try the existing assistant.
+- For the training notebook: Windows, PowerShell, Git, Python 3.10, JupyterLab or VS Code with the Python and Jupyter extensions, and a GPU if available. The notebook downloads and converts large audio datasets, so allow time and disk space.
+- For the firmware: Seeed Studio XIAO ESP32-S3 (PSRAM recommended), ReSpeaker XVF3800 in I2S mode, a connected speaker/amplifier, a USB data cable, PlatformIO, and 2.4 GHz Wi-Fi.
+- Internet is needed to install dependencies, download training audio, and use the online assistant services. Wake-word detection runs locally; speech transcription, chat, and speech generation use Groq.
 
-## Repository layout
+The firmware and model are already in this repository. You do not need to create another PlatformIO project or generate the firmware by pasting coding prompts into an assistant.
 
-```text
-microWakeWord/
-  notebooks/basic_training_notebook.ipynb   # custom wake-word training walkthrough
-TechPanda Voice Assistant/
-  include/secrets.example.h                 # safe credentials template
-  models/hi_tech_panda.tflite               # model artifact used by the firmware
-  src/wake_word_model.cpp                   # same model embedded as a C++ byte array
-README.md                                    # end-to-end guide
-```
+## Projects in this repository
 
-Training datasets, generated audio, feature maps, checkpoints, and local credentials are intentionally not included. The notebook downloads or creates the data it uses.
+| Folder | What it contains |
+| --- | --- |
+| [`microWakeWord/`](microWakeWord/README.md) | Python library, custom training notebook, and dataset notes. |
+| [`TechPanda Voice Assistant/`](TechPanda%20Voice%20Assistant/README.md) | Complete PlatformIO firmware, embedded model, model file, audio configuration, and a safe secrets template. |
 
-## Part 1: Train a wake-word model
+Training data, generated audio, feature maps, checkpoints, build caches, and real credentials are not committed.
 
-### Requirements and notebook platform
+## 1. Set up the training environment
 
-- Windows with PowerShell, Git, and Python 3.10. The notebook's Piper model download cell invokes `powershell` directly.
-- JupyterLab or another Jupyter notebook interface.
-- A GPU is strongly recommended for model training. Data downloads and audio conversion need substantial time and free disk space.
-- An internet connection for Python packages, Piper, and the audio datasets.
-
-The edited notebook is Windows-oriented. Its final export cell imports `google.colab.files`, so on a local Windows Jupyter session run cells through training/export and get the resulting model directly from the output folder below. The notebook will not run unchanged on Colab/Linux: the sample-generation cell calls PowerShell, the editable install uses a path relative to the notebook working directory, and the last cell is Colab-only. Those cells need platform-specific edits for a Colab/Linux workflow.
-
-### Create the environment and start Jupyter in the expected folder
-
-Run these commands from the repository root in PowerShell:
+Clone this combined repository, then create an environment in the microWakeWord project. Run these commands from its root in PowerShell:
 
 ```powershell
-cd microWakeWord
+git clone https://github.com/arslansadiq87/microwakeword-training.git
+cd microwakeword-training\microWakeWord
 py -3.10 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e .
-python -m pip install jupyterlab
+python -m pip install jupyterlab ipykernel
 cd notebooks
 jupyter lab basic_training_notebook.ipynb
 ```
 
-Keep Jupyter's working directory at `microWakeWord/notebooks`. Notebook paths such as `generated_samples`, `negative_datasets`, and `trained_models` are relative to this directory, and the install cell runs `%pip install -e ..`. In the notebook, run cells from top to bottom. Its first code cell installs an `audio-metadata` source revision and the local microWakeWord package; on macOS it also installs a `pymicro-features` compatibility fork. Restart the kernel after installation if prompted.
+In VS Code, open the notebook and select the Python environment at `microWakeWord/.venv`. If PowerShell blocks virtual environment activation, you can allow it for the current PowerShell process and activate again:
 
-### What each notebook stage does
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
 
-1. **Choose the phrase and generate a test clip.** In cell 2, change `target_word` to the phrase you want, written as Piper should speak it. The cell clones Piper Sample Generator if needed, installs `torch`, `torchaudio`, and `piper-tts==1.3.0`, downloads the `en_US-libritts_r-medium.pt` voice model, generates one WAV file, and plays it. Check pronunciation before continuing.
-2. **Generate positive examples.** Cell 3 creates 1,000 WAV samples for `target_word` under `notebooks/generated_samples`. If you change the phrase, rerun the sample and generation cells. Review samples for mispronunciations and unnatural clips before training.
-3. **Download and prepare augmentation audio.** Cell 4 installs `datasets==2.19.0` and `soundfile`, then fetches MIT room impulse responses, an AudioSet balanced training archive, and the Free Music Archive XSmall dataset. It converts AudioSet and FMA audio to 16 kHz WAV. This is a large download and conversion step. Check the sources and license terms in [`microWakeWord/documentation/data_sources.md`](microWakeWord/documentation/data_sources.md) before using or redistributing the data.
-4. **Configure augmentation and inspect an example.** Cell 5 splits positive clips into approximately 80% training, 10% validation, and 10% testing, and configures pitch, EQ, distortion, background noise, gain, and room impulse response augmentation. Cell 6 plays one augmented example so you can confirm it still sounds like the target phrase.
-5. **Create positive feature maps.** Cell 7 writes spectrogram features in Ragged Mmap format under `generated_augmented_features/training`, `validation`, and `testing`. It uses repeated/shifted examples for training and separate validation and test splits.
-6. **Fetch precomputed negative feature maps.** Cell 8 downloads and extracts the `speech`, `dinner_party`, `no_speech`, and `dinner_party_eval` sets into `negative_datasets/`. These provide speech and ambient examples that should not trigger the wake word.
-7. **Write the training configuration.** Cell 9 creates `training_parameters.yaml`. The example uses 10,000 training steps, batch size 128, 1.5-second clips, evaluation every 500 steps, weighted negative examples, and `average_viable_recall` as the maximization metric. Adjust paths, weights, augmentation, and training duration to suit your datasets and experiments.
-8. **Train and export.** Cell 10 installs TensorBoard and runs the MixedNet training/conversion command. The notebook requests the best weights and a quantized streaming TFLite export. Cell 11 downloads the result in Colab; for local Windows, find the file directly at `microWakeWord/notebooks/trained_models/wakeword/tflite_stream_state_internal_quant/stream_state_internal_quant.tflite`.
+Keep the notebook's working directory at `microWakeWord/notebooks`: the cells write their data and models there, and the install cell runs `%pip install -e ..`. Run the notebook cells from top to bottom. Its first code cell installs an `audio-metadata` source revision and the local microWakeWord package; on macOS it also installs a `pymicro-features` compatibility fork. Restart the kernel after the installation cell completes.
 
-Training outputs and downloaded data live under `microWakeWord/notebooks`; do not commit them. Keep copies of the training configuration and checkpoints you need to reproduce or resume an experiment.
+### Notebook platform note
 
-### Evaluate before deploying
+The current notebook is set up primarily for Windows. Its Piper model download invokes PowerShell, and its last cell uses `google.colab.files` to download the exported model. In local Windows Jupyter, run through the training cell and use the resulting file path listed below; the Colab download cell is unnecessary. The notebook will not run unchanged in Colab/Linux: adapt the PowerShell download, the working-directory-relative install, and the final download cell for that environment.
 
-The notebook is a starting point, not evidence that a model is ready for daily use. Listen to generated and augmented samples. Test with multiple speakers, microphones, distances, speaking styles, and noisy rooms. Pay particular attention to false activations in long recordings that do not contain the phrase. A model can have good notebook metrics and still perform poorly on your device or in your room.
+## 2. Run the training notebook
 
-If you change `target_word`, also update firmware log messages and user-facing wake-word text if you use the TechPanda assistant. Training a different phrase does not automatically change the embedded firmware model.
+The existing notebook is at `microWakeWord/notebooks/basic_training_notebook.ipynb`. Use the cells in that file; the guide below describes what they do and what to check.
 
-## Part 2: Build and use the voice assistant
+1. **Choose a phrase and check a sample.** In cell 2, set `target_word` (the default is `hi tech panda`). The cell installs Piper audio packages, clones Piper Sample Generator if needed, downloads the `en_US-libritts_r-medium.pt` voice model, generates one WAV sample, and plays it. Confirm that Piper pronounces the phrase clearly before generating the full set.
+2. **Generate positive clips.** Cell 3 generates 1,000 samples under `microWakeWord/notebooks/generated_samples`. Review the clips for mispronunciations, cut-off words, and overly repetitive speech. If you change the phrase, rerun the test sample and full generation cells.
+3. **Prepare augmentation audio.** Cell 4 installs `datasets==2.19.0` and `soundfile`, then downloads MIT room impulse responses, an AudioSet balanced audio archive, and the Free Music Archive XSmall dataset. It converts the AudioSet and FMA audio to 16 kHz WAV. This step can take a long time and use substantial disk space. If a download is interrupted, remove its incomplete archive before retrying; the helper skips existing nonempty files.
+4. **Configure and preview augmentation.** Cell 5 splits positive clips into about 80% training, 10% validation, and 10% testing. It applies pitch, EQ, distortion, colored/background noise, gain, and room-response augmentation. Cell 6 creates and plays `augmented_clip.wav`; listen to ensure augmentation has not obscured the phrase.
+5. **Generate positive feature sets.** Cell 7 writes Ragged Mmap spectrogram features beneath `generated_augmented_features/training`, `validation`, and `testing`. Training examples are repeated/shifted; validation and testing use their own splits.
+6. **Download negative feature sets.** Cell 8 downloads and extracts `speech`, `dinner_party`, `no_speech`, and `dinner_party_eval` into `negative_datasets/`. They provide speech and ambient examples that should not trigger the wake word.
+7. **Write the training config.** Cell 9 creates `training_parameters.yaml`. The example uses 10,000 training steps, batch size 128, a 1,500 ms clip duration, evaluation every 500 steps, weighted negative samples, and `average_viable_recall` for model selection. Change weights, steps, and augmentation settings as you experiment.
+8. **Train and export.** Cell 10 installs TensorBoard and launches MixedNet training with a quantized streaming TFLite export. The exported model should appear here relative to the repository root:
 
-### Hardware and software
+   ```text
+   microWakeWord/notebooks/trained_models/wakeword/tflite_stream_state_internal_quant/stream_state_internal_quant.tflite
+   ```
 
-- Seeed XIAO ESP32-S3; PSRAM is recommended.
-- ReSpeaker XVF3800 configured for I2S, plus an I2S speaker/amplifier on the codec playback path.
-- VS Code with PlatformIO IDE, or PlatformIO Core CLI; USB data cable.
-- A 2.4 GHz Wi-Fi network with internet access.
-- A Groq account and API key with access to the models configured in the firmware.
+   Cell 11 calls a Colab download helper. On Windows, use the file at the path above.
 
-The pin settings are in `TechPanda Voice Assistant/include/audio_config.h`: BCLK GPIO 8, WS/LRCLK GPIO 7, data in GPIO 43, and data out GPIO 44. Check your specific carrier board's wiring before connecting hardware. The firmware uses mono 16 kHz PCM audio and 32-bit stereo I2S slots.
+Training creates datasets, generated WAV files, feature maps, configuration, logs, and checkpoints below `microWakeWord/notebooks`. They are local working files, not files to upload to Git. Keep the configuration and checkpoints if you need to reproduce or resume a run.
 
-### Create a Groq API key and configure the firmware
+### Evaluate before deployment
 
-1. Sign in or create an account at the [Groq Console](https://console.groq.com/).
-2. Open [API Keys](https://console.groq.com/keys), create a key, and copy it somewhere private. Groq shows a new key for copying; treat it like a password.
-3. Check the [current model list](https://console.groq.com/docs/models) and your account's limits, availability, and pricing. The firmware currently requests `whisper-large-v3-turbo` for transcription, `openai/gpt-oss-20b` for chat, and `canopylabs/orpheus-v1-english` for speech. The Orpheus model is listed as a preview and may change or be withdrawn.
-4. From the firmware project folder, make a local secrets header:
+The example notebook is a starting point; one successful training run does not make a reliable detector. Test with multiple speakers, microphones, distances, speaking styles, and background conditions. Use long recordings without the wake phrase to check false activations as well as positive samples to check missed detections. Review the source and terms for downloaded datasets in [`microWakeWord/documentation/data_sources.md`](microWakeWord/documentation/data_sources.md).
+
+## 3. Set up the included voice assistant
+
+### Hardware and wiring
+
+The firmware targets the Seeed Studio XIAO ESP32-S3 and a ReSpeaker XVF3800 in I2S mode. The configured pins in `TechPanda Voice Assistant/include/audio_config.h` are BCLK GPIO 8, WS/LRCLK GPIO 7, data in GPIO 43, and data out GPIO 44. Check the pinout for your specific carrier board before wiring; the firmware uses mono 16 kHz PCM in 32-bit stereo I2S slots. A connected I2S speaker/amplifier is required for spoken responses.
+
+### Create a Groq API key and configure Wi-Fi
+
+1. Sign in or create an account at [Groq Console](https://console.groq.com/).
+2. Open [API Keys](https://console.groq.com/keys), create a key, and copy it. Treat the key like a password.
+3. Check the [current Groq model list](https://console.groq.com/docs/models), account access, usage limits, and pricing. This firmware requests `whisper-large-v3-turbo` for speech-to-text, `openai/gpt-oss-20b` for chat, and `canopylabs/orpheus-v1-english` for text-to-speech. The Orpheus model is currently marked as a preview and can change or be withdrawn.
+4. In PowerShell, move into the firmware folder and copy the safe template:
 
    ```powershell
+   cd "TechPanda Voice Assistant"
    Copy-Item include/secrets.example.h include/secrets.h
    ```
 
-   On macOS/Linux, use `cp include/secrets.example.h include/secrets.h`.
-5. Edit `include/secrets.h` and set `WIFI_SSID`, `WIFI_PASSWORD`, and `GROQ_API_KEY` to your values. `include/secrets.h` is ignored by Git; never add it to a commit. If you expose a key, revoke it in the Groq Console and create a replacement.
+5. Edit `include/secrets.h` and enter your `WIFI_SSID`, `WIFI_PASSWORD`, and `GROQ_API_KEY`. For macOS/Linux, use `cp include/secrets.example.h include/secrets.h` instead.
 
-### Build, upload, and run
+`include/secrets.h` is ignored by Git. Do not commit or share it. If you expose an API key, revoke it in Groq Console and create a new one. The same Groq key is used by this firmware for transcription, chat, and speech generation.
 
-Open `TechPanda Voice Assistant/` as the PlatformIO project. In VS Code, choose the `seeed_xiao_esp32s3` environment and run **Build**, **Upload**, and **Monitor**. Or open a terminal in that folder and run:
+## 4. Build, upload, and test the firmware
+
+Keep the terminal in `TechPanda Voice Assistant/`. PlatformIO installs the libraries listed in `platformio.ini` when building. You can use the PlatformIO Build, Upload, and Monitor buttons in VS Code, or run:
 
 ```powershell
 pio run -e seeed_xiao_esp32s3
@@ -106,15 +104,33 @@ pio run -e seeed_xiao_esp32s3 -t upload
 pio device monitor -b 115200
 ```
 
-If PlatformIO cannot find the serial port, select the connected board's port in PlatformIO or add local `upload_port` and `monitor_port` settings to `platformio.ini`. Do not commit machine-specific port settings. At startup, the serial log reports PSRAM, I2S, wake model, and Wi-Fi status. When the detector is ready, say **“Hi Tech Panda”**, then ask a question after the listening prompt.
+Connect the board with a USB data cable. If the serial port is not detected, select the board's port in PlatformIO or add `upload_port` and `monitor_port` locally to `platformio.ini`; do not commit machine-specific ports. The monitor is set to 115200 baud.
 
-The wake-word detector runs locally. After activation, the recorded question is sent to Groq speech-to-text, the transcript is sent to Groq chat, and the response text is sent to Groq text-to-speech. Those steps require Wi-Fi, an active API key, and provider model availability. Do not speak information you do not want sent to the configured provider.
+At startup, look for PSRAM, I2S, model, tensor allocation, Wi-Fi, and detector-ready messages. Say **“Hi Tech Panda”**. After the spoken acknowledgement and `WAITING FOR QUESTION SPEECH`, ask a question. The firmware detects speech and silence, transcribes the recording, asks Groq for an answer, and plays the answer through the speaker. It records up to 12 seconds and ends after about 1.3 seconds of silence following speech. It then returns to wake-word listening.
 
-## Use a newly trained model in the TechPanda firmware
+Typical runtime messages include:
 
-The firmware currently validates a quantized streaming TFLite model with input shape `[1, 3, 40]`, int8 input scale `0.1019607857` and zero point `-128`, and uint8 output scale `1/256` and zero point `0`. These checks and the supported operator list are in `TechPanda Voice Assistant/src/wake_word.cpp`. A model with different tensor dimensions, quantization, or operators will fail initialization or require firmware changes, including possible operator registrations in the TFLite Micro resolver.
+```text
+LISTENING FOR WAKE WORD
+WAKE WORD DETECTED
+SPEAKING: Wake acknowledgement
+WAITING FOR QUESTION SPEECH
+PROCESSING SPEECH
+TRANSCRIPTION: ...
+ASKING AI
+AI RESPONSE: ...
+SPEAKING
+RETURNING TO WAKE WORD MODE
+LISTENING FOR WAKE WORD
+```
 
-After confirming the new model matches those requirements, run this Python snippet from the repository root to copy the notebook export into the firmware and regenerate its embedded C++ byte array:
+Wake-word detection runs locally. After activation, the recorded question is sent to Groq for transcription, the transcript is sent for chat, and the answer text is sent for speech generation. Do not speak information you do not want sent to the provider. The current HTTPS clients call `setInsecure()`, so they do not validate the server certificate; configure CA certificate validation before using the firmware in a security-sensitive deployment.
+
+## 5. Put a newly trained model into the firmware
+
+The included firmware already embeds `models/hi_tech_panda.tflite` in `src/wake_word_model.cpp`. To replace it, first confirm the exported model matches the checks in `src/wake_word.cpp`: quantized streaming input shape `[1, 3, 40]`, int8 input scale `0.1019607857` and zero point `-128`, uint8 output scale `1/256` and zero point `0`. The model must also use operators registered by the firmware. A different shape, quantization, or unsupported operator needs corresponding firmware changes.
+
+After checking compatibility, run this from the repository root with the training output in place. It copies the TFLite file and regenerates the C++ array from the same bytes so the two files stay in sync:
 
 ```python
 from pathlib import Path
@@ -147,21 +163,30 @@ const size_t hi_tech_panda_model_len = sizeof(hi_tech_panda_model);
 print(f"Embedded {len(model)} model bytes")
 ```
 
-Review the threshold and model metadata checks in `src/wake_word.cpp`, then build and try the firmware on the target hardware. The current wake probability cutoff is also in that file. Update it based on real-world false-trigger and missed-trigger measurements. Keep the `.tflite` file and generated C++ array in sync.
+Rebuild, upload, and evaluate detections on the real microphone. Adjust the probability cutoff in `src/wake_word.cpp` using measured false-trigger and missed-detection behavior. A successful compile alone does not prove the new model detects correctly.
 
-## Privacy, data, and troubleshooting
+## Troubleshooting
 
-- Do not commit `TechPanda Voice Assistant/include/secrets.h`, API keys, Wi-Fi credentials, local environments, or downloaded/generated datasets. The project ignore files exclude local secrets and common build/data artifacts.
-- Review the source dataset license and conditions before using or redistributing audio; see [`microWakeWord/documentation/data_sources.md`](microWakeWord/documentation/data_sources.md).
-- **Wi-Fi does not connect:** check SSID/password, use a supported 2.4 GHz network, and inspect the serial log.
-- **Groq returns 401/403:** check the local API key, account permissions, and current model access. Do not print the key in logs.
-- **Wake model initialization fails:** check the serial tensor metadata message; confirm the TFLite artifact and embedded C++ array are from the same file and match the firmware's expected metadata.
-- **No or frequent detections:** verify the mic wiring and ambient audio, evaluate more positive and negative examples, and tune the probability threshold using long recordings.
-- **Upload or monitor fails:** check the selected serial port and USB data cable.
+| Problem | What to check |
+| --- | --- |
+| `py -3.10` is unavailable | Install Python 3.10, reopen PowerShell, and confirm with `py -3.10 --version`. |
+| Jupyter cannot import microWakeWord | Select the project's `.venv` kernel and keep the notebook working directory at `microWakeWord/notebooks`. Run the first notebook cell again if needed. |
+| Piper model is missing | Complete the Piper setup in notebook cell 2. If the generator folder exists from a partial setup, finish or remove it before rerunning setup. |
+| Dataset archive or extraction fails | Remove the incomplete archive, check free disk space and internet access, and rerun the download cell. |
+| Feature folders already exist | Preserve results you need, then use a fresh output folder or remove stale generated files before regenerating. Keep the config paths consistent. |
+| Training runs out of memory | Reduce the training batch size in `training_parameters.yaml`; consider fewer samples or a GPU with more memory. |
+| Wi-Fi does not connect | Check the local SSID/password and use a supported 2.4 GHz network. |
+| Groq returns 401/403 | Check the key in the ignored local `include/secrets.h`, account access, and current model availability. Never print the key to logs. |
+| Model initialization fails | Confirm the `.tflite` file and C++ byte array match, then check tensor shape, quantization, and supported operators. |
+| Upload or serial monitor fails | Close the serial monitor before upload, check the USB data cable and selected port, and retry. |
+| No or frequent wake detections | Check mic wiring and signal level; evaluate varied positive and negative examples and tune the detector cutoff. |
+| No spoken response | Check Wi-Fi/API status, model access, I2S playback wiring, and speaker/amplifier configuration. |
 
-## More detail
+## References
 
-- [microWakeWord project README](microWakeWord/README.md)
-- [TechPanda Voice Assistant README](TechPanda%20Voice%20Assistant/README.md)
+- [microWakeWord project guide](microWakeWord/README.md)
+- [TechPanda Voice Assistant guide](TechPanda%20Voice%20Assistant/README.md)
+- [Dataset sources and notes](microWakeWord/documentation/data_sources.md)
+- [Piper Sample Generator](https://github.com/rhasspy/piper-sample-generator)
 - [Groq API quickstart](https://console.groq.com/docs/quickstart)
-- [Groq model availability](https://console.groq.com/docs/models)
+- [Groq current model list](https://console.groq.com/docs/models)
