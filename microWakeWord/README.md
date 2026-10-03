@@ -41,22 +41,13 @@ The generated samples are augmented before or during training to increase variab
 
 Please see the ``basic_training_notebook.ipynb`` notebook to see how a model is trained. This notebook will produce a model, but it will most likely not be usable! Training a usable model requires a lot of experimentation, and that notebook is meant to serve only as a starting point for advanced users.
 
-### Getting started
+### Custom training notebook
 
-Use Python 3.10 or newer in a clean virtual environment. From the repository root, install the package and its dependencies:
+The repository-level README contains the full guide for the revised [`basic_training_notebook.ipynb`](notebooks/basic_training_notebook.ipynb), including environment setup, every data preparation/training stage, expected output paths, and instructions for embedding a trained model in the TechPanda firmware.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e .
-```
+In brief, the notebook generates a test utterance and 1,000 positive Piper samples, downloads MIT room impulse responses plus AudioSet and FMA background audio, creates augmented positive spectrogram features, downloads precomputed negative feature sets, writes `training_parameters.yaml`, and trains/exports a quantized streaming TFLite model. Run it in order from `microWakeWord/notebooks`, because its paths and `%pip install -e ..` command depend on that working directory. A GPU and substantial disk space are recommended; the datasets and generated artifacts are not included in Git.
 
-Open `notebooks/basic_training_notebook.ipynb` in Jupyter or Google Colab and follow its cells in order. The notebook explains how to generate positive wake-word examples with Piper, prepare training and validation feature sets, configure `training_parameters.yaml`, train a MixedNet model, and export a quantized streaming TFLite model. A GPU is strongly recommended. You must supply or generate the audio and feature datasets referenced by the notebook/configuration; these large datasets and training outputs are not included in this repository.
-
-The notebook is a learning example, not a one-click recipe for a reliable detector. Evaluate false activations against long ambient recordings and test recall with varied speakers, microphones, distances, and noise before deploying a model. See [`documentation/data_sources.md`](documentation/data_sources.md) for dataset sources and licensing notes.
-
-For an ESP32-S3 firmware example that embeds a microWakeWord model, see the TechPanda Voice Assistant project and follow that firmware repository's README when integrating a trained model.
+The current notebook uses PowerShell for one download step and Google Colab's download helper in its final cell. Follow the root README's platform note before choosing a Windows Jupyter or Colab/Linux workflow. Evaluate false activations against long ambient recordings and test recall with varied speakers, microphones, distances, and noise before deployment. See [`documentation/data_sources.md`](documentation/data_sources.md) for data sources and licensing notes.
 
 ## Models
 

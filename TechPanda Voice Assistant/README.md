@@ -35,8 +35,8 @@ The configured Groq model IDs are `whisper-large-v3-turbo` for transcription, `o
 ### Get a Groq API key
 
 1. Create or sign in to your account at [Groq Console](https://console.groq.com/).
-2. Open the **API Keys** section in the console and create a new key. Copy it when shown; treat it like a password.
-3. Check Groq's current model availability and account requirements for the configured transcription, chat, and text-to-speech models. Usage may be subject to account limits or charges.
+2. Open [API Keys](https://console.groq.com/keys) and create a new key. Copy it when shown; treat it like a password.
+3. Check Groq's [current model list](https://console.groq.com/docs/models) and account requirements for the configured transcription, chat, and text-to-speech models. Orpheus TTS is currently marked as a preview model; availability, limits, and prices can change.
 
 Keep the key private: do not put it in a public issue, screenshot, source file, or Git commit. If it is exposed, revoke it in the console and create another one.
 
@@ -64,7 +64,7 @@ If PlatformIO does not find the board's serial port, select the correct port in 
 
 ## Use a newly trained wake word model
 
-The training project and notebook are in the separate `microWakeWord` repository: [microWakeWord](https://github.com/kahrendt/microWakeWord). Its `notebooks/basic_training_notebook.ipynb` is a starting point for training a streaming quantized model. Training needs prepared positive samples and negative/ambient feature datasets; follow the notebook and the microWakeWord documentation for data preparation and evaluation.
+The training project is included in this repository under [`../microWakeWord/`](../microWakeWord/README.md). Follow the end-to-end notebook and model conversion steps in the [repository-level README](../README.md). The training notebook needs positive samples and negative/ambient feature datasets, which it generates or downloads; these datasets are not committed.
 
 This firmware currently expects a quantized streaming TFLite model with input shape `[1, 3, 40]` and the tensor quantization values checked in `src/wake_word.cpp`. The detector also uses the microWakeWord 40-feature frontend settings in that file. A model trained with different dimensions or quantization will not initialize correctly. To replace the current model, update both `models/hi_tech_panda.tflite` and the matching C array in `src/wake_word_model.cpp`, then check the model tensor shape, input/output types, quantization parameters, and supported operators against the checks and resolver in `src/wake_word.cpp` before building.
 
